@@ -61,6 +61,11 @@ function uriToPath(uri) {
     return null;
 }
 
+// Normalize URI to ensure consistent format (decode percent-encoded characters like %3A -> :)
+function normalizeUri(uri) {
+    return decodeURIComponent(uri);
+}
+
 const queriesPath = path.resolve(__dirname, '../../grammar/queries/metta/highlights.scm');
 let highlightQuery;
 try {
@@ -441,7 +446,7 @@ function crawlDirectory(dir) {
                 }
             } else if (file.endsWith('.metta')) {
                 const content = fs.readFileSync(fullPath, 'utf8');
-                const uri = `file:///${fullPath.replace(/\\/g, '/')}`;
+                const uri = normalizeUri(`file:///${fullPath.replace(/\\/g, '/')}`);
                 indexFile(uri, content);
             }
         }
@@ -721,10 +726,11 @@ function findAllReferences(symbolName, includeDeclaration = true, sourceUri = nu
     const definitions = globalIndex.get(symbolName) || [];
     if (includeDeclaration) {
         for (const def of definitions) {
-            const key = `${def.uri}:${def.range.start.line}:${def.range.start.character}`;
+            const normalizedDefUri = normalizeUri(def.uri);
+            const key = `${normalizedDefUri}:${def.range.start.line}:${def.range.start.character}`;
             if (!seenKeys.has(key)) {
                 seenKeys.add(key);
-                references.push({ uri: def.uri, range: def.range });
+                references.push({ uri: normalizedDefUri, range: def.range });
             }
         }
     }
@@ -745,20 +751,21 @@ function findAllReferences(symbolName, includeDeclaration = true, sourceUri = nu
     
     // Search for usages in each file (using cache)
     for (const uri of allUris) {
-        const filePath = uriToPath(uri);
+        const normalizedFileUri = normalizeUri(uri);
+        const filePath = uriToPath(normalizedFileUri);
         if (!filePath || !fs.existsSync(filePath)) continue;
         
         try {
             const content = fs.readFileSync(filePath, 'utf8');
-            const cached = getOrParseFile(uri, content);
+            const cached = getOrParseFile(normalizedFileUri, content);
             
             if (cached && cached.usageIndex.has(symbolName)) {
                 const ranges = cached.usageIndex.get(symbolName);
                 for (const range of ranges) {
-                    const key = `${uri}:${range.start.line}:${range.start.character}`;
+                    const key = `${normalizedFileUri}:${range.start.line}:${range.start.character}`;
                     if (!seenKeys.has(key)) {
                         seenKeys.add(key);
-                        references.push({ uri, range });
+                        references.push({ uri: normalizedFileUri, range });
                     }
                 }
             }
@@ -769,24 +776,24 @@ function findAllReferences(symbolName, includeDeclaration = true, sourceUri = nu
     
     // Also check open documents (using cache when possible)
     for (const document of documents.all()) {
-        const uri = document.uri;
-        if (!allUris.has(uri)) {
+        const normalizedDocUri = normalizeUri(document.uri);
+        if (!allUris.has(normalizedDocUri)) {
             try {
                 const content = document.getText();
-                const cached = getOrParseFile(uri, content);
+                const cached = getOrParseFile(normalizedDocUri, content);
                 
                 if (cached && cached.usageIndex.has(symbolName)) {
                     const ranges = cached.usageIndex.get(symbolName);
                     for (const range of ranges) {
-                        const key = `${uri}:${range.start.line}:${range.start.character}`;
+                        const key = `${normalizedDocUri}:${range.start.line}:${range.start.character}`;
                         if (!seenKeys.has(key)) {
                             seenKeys.add(key);
-                            references.push({ uri, range });
+                            references.push({ uri: normalizedDocUri, range });
                         }
                     }
                 }
             } catch (e) {
-                connection.console.error(`Error parsing document ${uri}: ${e.message}`);
+                connection.console.error(`Error parsing document ${normalizedDocUri}: ${e.message}`);
             }
         }
     }
@@ -834,7 +841,7 @@ function findAllMettaFiles(dir, uriSet) {
                     findAllMettaFiles(fullPath, uriSet);
                 }
             } else if (file.endsWith('.metta')) {
-                const uri = `file:///${fullPath.replace(/\\/g, '/')}`;
+                const uri = normalizeUri(`file:///${fullPath.replace(/\\/g, '/')}`);
                 uriSet.add(uri);
             }
         }
@@ -932,10 +939,11 @@ connection.onRenameRequest((params) => {
     // Create workspace edit with all changes
     const changes = {};
     for (const ref of references) {
-        if (!changes[ref.uri]) {
-            changes[ref.uri] = [];
+        const normalizedUri = normalizeUri(ref.uri);
+        if (!changes[normalizedUri]) {
+            changes[normalizedUri] = [];
         }
-        changes[ref.uri].push({
+        changes[normalizedUri].push({
             range: ref.range,
             newText: newName
         });
