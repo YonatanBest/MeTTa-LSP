@@ -26,6 +26,10 @@ This will update `src/parser.c`, `src/grammar.json`, and `src/node-types.json`.
 - [x] **Hover Info**: View type signatures and definitions by hovering over symbols.
 - [x] **Document Symbols**: Navigate files easily with the "Outline" view.
 - [x] **Auto-Completion**: Context-aware suggestions for keywords and project symbols.
+- [x] **Find All References**: Project-wide symbol references.
+- [x] **Rename Symbol**: Safe workspace-wide symbol renaming.
+- [x] **Workspace Symbol Indexing**: Global symbol tracking across files.
+
 
 ## Installation & Setup
 
