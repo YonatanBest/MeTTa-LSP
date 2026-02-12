@@ -27,6 +27,7 @@ const globalIndex = new Map();
 
 // Store workspace folders for reference finding
 let workspaceFolders = [];
+let hasWorkspaceFolderCapability = false;
 
 // Parse cache: uri -> { tree, content, timestamp, usageIndex, oldTree }
 // usageIndex: symbolName -> [ranges]
@@ -450,6 +451,13 @@ function crawlDirectory(dir) {
 }
 
 connection.onInitialize(async (params) => {
+    const capabilities = params.capabilities;
+
+    // Does the client support the `workspace/workspaceFolders` capability?
+    hasWorkspaceFolderCapability = !!(
+        capabilities.workspace && !!capabilities.workspace.workspaceFolders
+    );
+
     connection.console.log('MeTTa LSP Server Initialized');
     if (params.workspaceFolders) {
         workspaceFolders = params.workspaceFolders;
@@ -459,6 +467,11 @@ connection.onInitialize(async (params) => {
     return {
         capabilities: {
             textDocumentSync: TextDocumentSyncKind.Incremental,
+            workspace: {
+                workspaceFolders: {
+                    supported: true
+                }
+            },
             semanticTokensProvider: {
                 legend: {
                     tokenTypes: ['comment', 'string', 'keyword', 'number', 'operator', 'variable', 'function', 'regexp', 'type', 'boolean', 'punctuation', 'parameter', 'property'],
@@ -1060,11 +1073,17 @@ connection.languages.semanticTokens.on((params) => {
     return { data: tokens };
 });
 
-// Handle workspace folder changes
-connection.onDidChangeWorkspaceFolders((params) => {
-    workspaceFolders = params.event.added;
-    for (const folder of params.event.added) {
-        setTimeout(() => scanWorkspace([folder]), 0);
+connection.onInitialized(() => {
+    if (hasWorkspaceFolderCapability) {
+        connection.workspace.onDidChangeWorkspaceFolders((params) => {
+            for (const folder of params.event.added) {
+                workspaceFolders.push(folder);
+                setTimeout(() => scanWorkspace([folder]), 0);
+            }
+            for (const folder of params.event.removed) {
+                workspaceFolders = workspaceFolders.filter(f => f.uri !== folder.uri);
+            }
+        });
     }
 });
 
