@@ -15,20 +15,14 @@ const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
 
-// Create a connection for the server
 const connection = createConnection(ProposedFeatures.all);
 
-// Create a simple text document manager
 const documents = new TextDocuments(TextDocument);
-
-// Initialize Tree-sitter
 const parser = new Parser();
 parser.setLanguage(Metta);
 
-// Global Index: SymbolName -> [{ uri, range, kind, context, op }]
 const globalIndex = new Map();
 
-// Helper to convert URI to local path
 function uriToPath(uri) {
     try {
         const url = new URL(uri);
@@ -45,8 +39,6 @@ function uriToPath(uri) {
     return null;
 }
 
-// Load highlighting queries
-// New path: server/src/server.js -> ../../grammar/queries/metta/highlights.scm
 const queriesPath = path.resolve(__dirname, '../../grammar/queries/metta/highlights.scm');
 let highlightQuery;
 try {
@@ -56,7 +48,6 @@ try {
     console.error(`Failed to load highlights.scm from ${queriesPath}`, e);
 }
 
-// Query for symbols (definitions and type declarations)
 const symbolQuery = new Parser.Query(Metta, `
   (list
     head: (atom (symbol) @op (#any-of? @op "=" ":"))
@@ -71,7 +62,6 @@ function indexFile(uri, content) {
     const tree = parser.parse(content);
     const matches = symbolQuery.matches(tree.rootNode);
 
-    // Clear old entries for this URI
     for (const [name, symbols] of globalIndex.entries()) {
         const filtered = symbols.filter(s => s.uri !== uri);
         if (filtered.length === 0) {
@@ -161,6 +151,9 @@ connection.onInitialize(async (params) => {
             documentSymbolProvider: true,
             definitionProvider: true,
             hoverProvider: true,
+            signatureHelpProvider: {
+                triggerCharacters: ['(', ' ']
+            },
             completionProvider: {
                 resolveProvider: true
             }
@@ -185,6 +178,93 @@ connection.onHover((params) => {
         return { contents: { kind: 'markdown', value: `\`\`\`metta\n${bestMatch.context}\n\`\`\`` } };
     }
     return null;
+});
+
+connection.onSignatureHelp((params) => {
+    const document = documents.get(params.textDocument.uri);
+    if (!document) return null;
+    const offset = document.offsetAt(params.position);
+    const tree = parser.parse(document.getText());
+
+    let node = tree.rootNode.descendantForIndex(offset);
+
+    while (node && node.type !== 'list') {
+        node = node.parent;
+    }
+
+    if (!node) return null;
+
+    const headNode = node.childForFieldName('head');
+    if (!headNode) return null;
+
+    const headName = headNode.text;
+    const entries = globalIndex.get(headName);
+    if (!entries) return null;
+
+    const signatures = entries
+        .filter(s => s.op === ':')
+        .map(s => {
+            const label = s.context;
+            const parameters = [];
+
+            const sigTree = parser.parse(label);
+            let arrowNode = null;
+
+            function findArrow(n) {
+                if (n.type === 'list') {
+                    const head = n.childForFieldName('head');
+                    if (head && head.text === '->') {
+                        arrowNode = n;
+                        return;
+                    }
+                }
+                for (let i = 0; i < n.childCount; i++) {
+                    findArrow(n.child(i));
+                    if (arrowNode) return;
+                }
+            }
+            findArrow(sigTree.rootNode);
+
+            if (arrowNode) {
+                const children = arrowNode.children.filter(c => c.isNamed && c.text !== '->');
+                if (children.length > 1) {
+                    // In (-> Arg1 Arg2 ... Ret), all but the last are parameters
+                    const paramNodes = children.slice(0, -1);
+                    for (const p of paramNodes) {
+                        parameters.push({
+                            label: [p.startIndex, p.endIndex]
+                        });
+                    }
+                }
+            }
+
+            return {
+                label,
+                documentation: {
+                    kind: 'markdown',
+                    value: `Defined in [${path.basename(s.uri)}](${s.uri})`
+                },
+                parameters
+            };
+        });
+
+    if (signatures.length === 0) return null;
+
+
+    let activeParameter = 0;
+    let current = node.firstChild;
+    while (current && current.endIndex < offset) {
+        if (current.isNamed && current !== headNode) {
+            activeParameter++;
+        }
+        current = current.nextSibling;
+    }
+
+    return {
+        signatures,
+        activeSignature: 0,
+        activeParameter: activeParameter
+    };
 });
 
 connection.onDefinition((params) => {
