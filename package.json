@@ -1,13 +1,23 @@
 {
     "name": "vscode-metta",
     "displayName": "MeTTa Language Support",
-    "description": "LSP support for MeTTa language",
+    "description": "Full LSP support for the MeTTa language — syntax highlighting, diagnostics, go-to-definition, hover, completions, references, rename, and more.",
     "version": "1.0.0",
+    "publisher": "metta-lang",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/iCog-Labs-Dev/MeTTa-LSP"
+    },
+    "license": "MIT",
     "engines": {
         "vscode": "^1.80.0"
     },
-    "activationEvents": [],
-    "main": "./client/src/extension.js",
+    "categories": [
+        "Programming Languages",
+        "Linters",
+        "Formatters"
+    ],
+    "main": "./dist/extension.js",
     "contributes": {
         "languages": [
             {
@@ -24,13 +34,19 @@
         ]
     },
     "scripts": {
-        "install:all": "npm install",
-        "start": "cd client && npm run start"
+        "build": "esbuild client/src/extension.js --bundle --platform=node --external:vscode --outfile=dist/extension.js --minify",
+        "watch": "esbuild client/src/extension.js --bundle --platform=node --external:vscode --outfile=dist/extension.js --watch",
+        "package": "npm run build && vsce package",
+        "vscode:prepublish": "npm run build"
     },
-    "workspaces": [
-        "client",
-        "server",
-        "grammar"
-    ],
-    "dependencies": {}
+    "dependencies": {
+        "vscode-languageclient": "^9.0.1",
+        "vscode-languageserver": "^9.0.1",
+        "vscode-languageserver-textdocument": "^1.0.11",
+        "tree-sitter": "^0.21.0"
+    },
+    "devDependencies": {
+        "@vscode/vsce": "^3.3.2",
+        "esbuild": "^0.27.3"
+    }
 }

@@ -12,7 +12,7 @@ const {
 
 const { TextDocument } = require('vscode-languageserver-textdocument');
 const Parser = require('tree-sitter');
-const Metta = require('tree-sitter-metta');
+const Metta = require('../../grammar');
 const fs = require('fs');
 const path = require('path');
 const { URL } = require('url');
@@ -25,17 +25,10 @@ parser.setLanguage(Metta);
 
 const globalIndex = new Map();
 
-// Store workspace folders for reference finding
 let workspaceFolders = [];
 let hasWorkspaceFolderCapability = false;
 
-// Parse cache: uri -> { tree, content, timestamp, usageIndex, oldTree }
-// usageIndex: symbolName -> [ranges]
-// oldTree: for incremental parsing
 const parseCache = new Map();
-
-// Scope tree: uri -> Map<nodeId, { parent, children, symbols: Set<symbolName>, startLine, endLine }>
-// For better semantic scope precision
 const scopeTrees = new Map();
 
 // Built-in MeTTa symbols that should not be renamed
@@ -61,7 +54,6 @@ function uriToPath(uri) {
     return null;
 }
 
-// Normalize URI to ensure consistent format (decode percent-encoded characters like %3A -> :)
 function normalizeUri(uri) {
     return decodeURIComponent(uri);
 }
@@ -85,13 +77,11 @@ const symbolQuery = new Parser.Query(Metta, `
     argument: (atom (symbol) @name))
 `);
 
-// Query for all symbol usages (for references)
 const usageQuery = new Parser.Query(Metta, `
   (symbol) @symbol
   (variable) @symbol
 `);
 
-// Enhanced query for MeTTa idioms: ->, type declarations, macros, etc.
 const enhancedSymbolQuery = new Parser.Query(Metta, `
   ; Standard definitions (= and :)
   (list
@@ -122,20 +112,17 @@ const enhancedSymbolQuery = new Parser.Query(Metta, `
     argument: (list head: (atom (symbol) @name)))
 `);
 
-// Query for scope boundaries (let, let*, match, case, etc.)
 const scopeQuery = new Parser.Query(Metta, `
   (list
     head: (atom (symbol) @scope (#any-of? @scope "let" "let*" "match" "case" "if" "->")))
   @scope_node
 `);
 
-// Build formal scope tree for better semantic precision
 function buildScopeTree(uri, tree) {
     const scopeTree = new Map();
     const rootScope = { parent: null, children: [], symbols: new Set(), startLine: 0, endLine: Infinity, nodeId: 'root' };
     scopeTree.set('root', rootScope);
 
-    // Find all scope boundaries
     const matches = scopeQuery.matches(tree.rootNode);
     const scopes = [];
 
@@ -151,7 +138,6 @@ function buildScopeTree(uri, tree) {
         }
     }
 
-    // Build hierarchical scope structure
     scopes.sort((a, b) => {
         if (a.startLine !== b.startLine) return a.startLine - b.startLine;
         return a.node.startPosition.column - b.node.startPosition.column;
@@ -160,7 +146,6 @@ function buildScopeTree(uri, tree) {
     const scopeStack = [rootScope];
 
     for (const scope of scopes) {
-        // Pop scopes that have ended
         while (scopeStack.length > 1 && scopeStack[scopeStack.length - 1].endLine < scope.startLine) {
             scopeStack.pop();
         }
@@ -180,7 +165,6 @@ function buildScopeTree(uri, tree) {
         scopeStack.push(newScope);
     }
 
-    // Populate symbols in each scope by finding definitions within scope boundaries
     const symbolMatches = symbolQuery.matches(tree.rootNode);
     for (const match of symbolMatches) {
         const nameNode = match.captures.find(c => c.name === 'name')?.node;
@@ -188,7 +172,6 @@ function buildScopeTree(uri, tree) {
             const symbolLine = nameNode.startPosition.row;
             const symbolName = nameNode.text;
 
-            // Find the innermost scope containing this symbol
             function findScopeForLine(scope, line) {
                 if (line < scope.startLine || line > scope.endLine) {
                     return null;
@@ -213,7 +196,6 @@ function buildScopeTree(uri, tree) {
     return scopeTree;
 }
 
-// Enhanced function to get or parse file with caching and incremental parsing
 function getOrParseFile(uri, content, oldContent = null) {
     const filePath = uriToPath(uri);
     if (!filePath) return null;
@@ -222,13 +204,11 @@ function getOrParseFile(uri, content, oldContent = null) {
     try {
         stats = fs.statSync(filePath);
     } catch (e) {
-        // File doesn't exist or can't be accessed
         return null;
     }
 
     const cached = parseCache.get(uri);
 
-    // Try incremental parsing if we have old tree and content
     if (cached && oldContent !== null && cached.oldTree) {
         try {
             const edits = [];
@@ -247,17 +227,14 @@ function getOrParseFile(uri, content, oldContent = null) {
         }
     }
 
-    // Check if cache is still valid
     if (cached && cached.timestamp >= stats.mtimeMs && cached.content === content) {
         return cached;
     }
 
-    // Parse and cache (full parse for now, incremental can be added later)
     const oldTree = cached?.tree || null;
     const tree = parser.parse(content);
     const usageIndex = new Map();
 
-    // Build usage index for fast lookup
     const matches = usageQuery.matches(tree.rootNode);
     for (const match of matches) {
         const symbolNode = match.captures.find(c => c.name === 'symbol')?.node;
@@ -279,7 +256,6 @@ function getOrParseFile(uri, content, oldContent = null) {
         }
     }
 
-    // Build scope tree for better semantic precision
     buildScopeTree(uri, tree);
 
     const cacheEntry = {
@@ -287,44 +263,37 @@ function getOrParseFile(uri, content, oldContent = null) {
         content,
         timestamp: stats.mtimeMs,
         usageIndex,
-        oldTree // Store for incremental parsing
+        oldTree
     };
 
     parseCache.set(uri, cacheEntry);
     return cacheEntry;
 }
 
-// Enhanced symbol kind detection
 function detectSymbolKind(nameNode, opNode, context) {
     const op = opNode.text;
     const name = nameNode.text;
     const contextStr = context.toLowerCase();
 
-    // Type declarations
     if (op === ':') {
         return SymbolKind.Interface;
     }
 
-    // Function definitions
     if (op === '=') {
-        // Check for predicates (often end with ? or start with is-)
         if (name.endsWith('?') || name.startsWith('is-') || name.startsWith('has-')) {
-            return SymbolKind.Boolean; // Use Boolean for predicates
+            return SymbolKind.Boolean;
         }
         return SymbolKind.Function;
     }
 
-    // Arrow functions
     if (op === '->') {
         return SymbolKind.Function;
     }
 
-    // Macros
     if (contextStr.includes('macro') || contextStr.includes('defmacro')) {
-        return SymbolKind.Constant; // Use Constant for macros
+        return SymbolKind.Constant;
     }
 
-    // Default to Function
     return SymbolKind.Function;
 }
 
@@ -332,7 +301,6 @@ function indexFile(uri, content) {
     const tree = parser.parse(content);
     const matches = symbolQuery.matches(tree.rootNode);
 
-    // Also check enhanced query for better symbol detection
     const enhancedMatches = enhancedSymbolQuery.matches(tree.rootNode);
 
     for (const [name, symbols] of globalIndex.entries()) {
@@ -350,7 +318,6 @@ function indexFile(uri, content) {
 
         if (nameNode && opNode) {
             const name = nameNode.text;
-            // Use enhanced symbol kind detection
             let parent = nameNode.parent;
             while (parent && parent.type !== 'list') parent = parent.parent;
             const context = parent ? parent.text : name;
@@ -373,7 +340,6 @@ function indexFile(uri, content) {
         }
     }
 
-    // Process enhanced matches for additional symbol types
     for (const match of enhancedMatches) {
         const nameNode = match.captures.find(c => c.name === 'name')?.node;
         const opNode = match.captures.find(c => c.name === 'op')?.node;
@@ -382,7 +348,6 @@ function indexFile(uri, content) {
             const name = nameNode.text;
             const op = opNode ? opNode.text : null;
 
-            // Skip if already indexed by standard query
             const existing = globalIndex.get(name);
             if (existing && existing.some(e => e.uri === uri &&
                 e.range.start.line === nameNode.startPosition.row &&
@@ -394,7 +359,6 @@ function indexFile(uri, content) {
             while (parent && parent.type !== 'list') parent = parent.parent;
             const context = parent ? parent.text : name;
 
-            // Determine kind based on context
             let kind = SymbolKind.Function;
             if (op === ':') {
                 kind = SymbolKind.Interface;
@@ -458,7 +422,6 @@ function crawlDirectory(dir) {
 connection.onInitialize(async (params) => {
     const capabilities = params.capabilities;
 
-    // Does the client support the `workspace/workspaceFolders` capability?
     hasWorkspaceFolderCapability = !!(
         capabilities.workspace && !!capabilities.workspace.workspaceFolders
     );
@@ -573,7 +536,6 @@ connection.onSignatureHelp((params) => {
             if (arrowNode) {
                 const children = arrowNode.children.filter(c => c.isNamed && c.text !== '->');
                 if (children.length > 1) {
-                    // In (-> Arg1 Arg2 ... Ret), all but the last are parameters
                     const paramNodes = children.slice(0, -1);
                     for (const p of paramNodes) {
                         parameters.push({
@@ -627,7 +589,6 @@ connection.onDefinition((params) => {
     return null;
 });
 
-// Improved deduplication with better comparison
 function isRangeEqual(range1, range2) {
     return range1.start.line === range2.start.line &&
         range1.start.character === range2.start.character &&
@@ -641,19 +602,15 @@ function isReferenceDuplicate(ref, references) {
     );
 }
 
-// Enhanced scoping: check if symbol is shadowed using formal scope tree
 function isSymbolShadowed(node, symbolName, tree, uri) {
     const scopeTree = scopeTrees.get(uri);
     if (!scopeTree) {
-        // Fall back to basic heuristic if scope tree not available
         return isSymbolShadowedBasic(node, symbolName, tree);
     }
 
-    // Find the scope containing this node
     const nodeLine = node.startPosition.row;
     let containingScope = scopeTree.get('root');
 
-    // Find the innermost scope containing this node
     function findContainingScope(scope, line) {
         for (const child of scope.children) {
             if (line >= child.startLine && line <= child.endLine) {
@@ -669,18 +626,16 @@ function isSymbolShadowed(node, symbolName, tree, uri) {
         containingScope = foundScope;
     }
 
-    // Check if any parent scope defines this symbol
     let currentScope = containingScope;
     while (currentScope) {
         if (currentScope.symbols.has(symbolName)) {
-            // Check if definition is before usage
             const defs = globalIndex.get(symbolName) || [];
             for (const def of defs) {
                 if (def.uri === uri) {
                     const defLine = def.range.start.line;
                     if (defLine >= currentScope.startLine && defLine <= currentScope.endLine &&
                         defLine < nodeLine) {
-                        return true; // Shadowed
+                        return true;
                     }
                 }
             }
@@ -691,9 +646,7 @@ function isSymbolShadowed(node, symbolName, tree, uri) {
     return false;
 }
 
-// Basic scoping: check if symbol is shadowed by a local definition (fallback)
 function isSymbolShadowedBasic(node, symbolName, tree) {
-    // Walk up the tree to find enclosing scopes (let, match, etc.)
     let current = node.parent;
     while (current) {
         if (current.type === 'list') {
@@ -701,16 +654,14 @@ function isSymbolShadowedBasic(node, symbolName, tree) {
             if (head && head.type === 'atom') {
                 const headSymbol = head.firstChild;
                 if (headSymbol && (headSymbol.text === 'let' || headSymbol.text === 'let*' || headSymbol.text === 'match')) {
-                    // Check if this scope defines the symbol
                     const scopeMatches = symbolQuery.matches(current);
                     for (const match of scopeMatches) {
                         const nameNode = match.captures.find(c => c.name === 'name')?.node;
                         if (nameNode && nameNode.text === symbolName) {
-                            // Check if this definition is before our usage
                             if (nameNode.startPosition.row < node.startPosition.row ||
                                 (nameNode.startPosition.row === node.startPosition.row &&
                                     nameNode.startPosition.column < node.startPosition.column)) {
-                                return true; // Shadowed
+                                return true;
                             }
                         }
                     }
@@ -722,12 +673,10 @@ function isSymbolShadowedBasic(node, symbolName, tree) {
     return false;
 }
 
-// Helper function to find all references to a symbol across all files (optimized with cache)
 function findAllReferences(symbolName, includeDeclaration = true, sourceUri = null, sourcePosition = null) {
     const references = [];
-    const seenKeys = new Set(); // For better deduplication
+    const seenKeys = new Set();
 
-    // Get all definition locations from the index
     const definitions = globalIndex.get(symbolName) || [];
     if (includeDeclaration) {
         for (const def of definitions) {
@@ -740,13 +689,11 @@ function findAllReferences(symbolName, includeDeclaration = true, sourceUri = nu
         }
     }
 
-    // Find all usages in all indexed files
     const allUris = new Set();
     for (const def of definitions) {
         allUris.add(def.uri);
     }
 
-    // Also search in all workspace files
     for (const folder of workspaceFolders) {
         const rootPath = uriToPath(folder.uri);
         if (rootPath) {
@@ -754,7 +701,6 @@ function findAllReferences(symbolName, includeDeclaration = true, sourceUri = nu
         }
     }
 
-    // Search for usages in each file (using cache)
     for (const uri of allUris) {
         const normalizedFileUri = normalizeUri(uri);
         const filePath = uriToPath(normalizedFileUri);
@@ -763,7 +709,7 @@ function findAllReferences(symbolName, includeDeclaration = true, sourceUri = nu
         try {
             const content = fs.readFileSync(filePath, 'utf8');
             const cached = getOrParseFile(normalizedFileUri, content);
-            
+
             if (cached && cached.usageIndex.has(symbolName)) {
                 const ranges = cached.usageIndex.get(symbolName);
                 for (const range of ranges) {
@@ -779,14 +725,13 @@ function findAllReferences(symbolName, includeDeclaration = true, sourceUri = nu
         }
     }
 
-    // Also check open documents (using cache when possible)
     for (const document of documents.all()) {
         const normalizedDocUri = normalizeUri(document.uri);
         if (!allUris.has(normalizedDocUri)) {
             try {
                 const content = document.getText();
                 const cached = getOrParseFile(normalizedDocUri, content);
-                
+
                 if (cached && cached.usageIndex.has(symbolName)) {
                     const ranges = cached.usageIndex.get(symbolName);
                     for (const range of ranges) {
@@ -803,7 +748,6 @@ function findAllReferences(symbolName, includeDeclaration = true, sourceUri = nu
         }
     }
 
-    // If we have source context, filter out shadowed references using formal scope tree
     if (sourceUri && sourcePosition) {
         const sourceDoc = documents.get(sourceUri);
         if (sourceDoc) {
@@ -813,7 +757,6 @@ function findAllReferences(symbolName, includeDeclaration = true, sourceUri = nu
             const sourceNode = sourceTree.rootNode.descendantForIndex(sourceOffset);
 
             if (sourceNode) {
-                // Filter references that might be shadowed (enhanced check with scope tree)
                 return references.filter(ref => {
                     if (ref.uri === sourceUri) {
                         const refDoc = documents.get(ref.uri) || sourceDoc;
@@ -834,7 +777,6 @@ function findAllReferences(symbolName, includeDeclaration = true, sourceUri = nu
     return references;
 }
 
-// Helper to find all .metta files recursively
 function findAllMettaFiles(dir, uriSet) {
     try {
         const files = fs.readdirSync(dir);
@@ -866,9 +808,7 @@ connection.onReferences((params) => {
     return findAllReferences(symbolName, params.context?.includeDeclaration !== false, params.textDocument.uri, params.position);
 });
 
-// Validate rename: check for conflicts and built-ins
 function validateRename(symbolName, newName) {
-    // Check if renaming a built-in
     if (BUILTIN_SYMBOLS.has(symbolName)) {
         return {
             valid: false,
@@ -876,7 +816,6 @@ function validateRename(symbolName, newName) {
         };
     }
 
-    // Check if new name is a built-in
     if (BUILTIN_SYMBOLS.has(newName)) {
         return {
             valid: false,
@@ -884,10 +823,8 @@ function validateRename(symbolName, newName) {
         };
     }
 
-    // Check if new name conflicts with existing symbol
     const existingDefs = globalIndex.get(newName);
     if (existingDefs && existingDefs.length > 0) {
-        // Check if it's the same symbol (self-rename)
         const currentDefs = globalIndex.get(symbolName);
         const isSelfRename = currentDefs && currentDefs.length === existingDefs.length &&
             currentDefs.every((def, i) =>
@@ -903,7 +840,6 @@ function validateRename(symbolName, newName) {
         }
     }
 
-    // Validate new name format (basic check)
     if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(newName) && !/^[=:->!&|]+$/.test(newName)) {
         return {
             valid: false,
@@ -928,20 +864,17 @@ connection.onRenameRequest((params) => {
         return null;
     }
 
-    // Validate rename
     const validation = validateRename(symbolName, newName);
     if (!validation.valid) {
         throw new ResponseError(ErrorCodes.InvalidRequest, validation.message);
     }
 
-    // Find all references (with source context for better scoping)
     const references = findAllReferences(symbolName, true, params.textDocument.uri, params.position);
 
     if (references.length === 0) {
         return null;
     }
 
-    // Create workspace edit with all changes
     const changes = {};
     for (const ref of references) {
         const normalizedUri = normalizeUri(ref.uri);
@@ -967,7 +900,6 @@ connection.onPrepareRename((params) => {
 
     const symbolName = nodeAtCursor.text;
 
-    // Check if it's a built-in (can't rename)
     if (BUILTIN_SYMBOLS.has(symbolName)) {
         throw new ResponseError(ErrorCodes.InvalidRequest, `Cannot rename built-in symbol: ${symbolName}`);
     }
@@ -983,7 +915,6 @@ connection.onPrepareRename((params) => {
         }
     };
 
-    // Get reference count for preview
     const references = findAllReferences(symbolName, true, params.textDocument.uri, params.position);
     const placeholder = `${symbolName} (${references.length} reference${references.length !== 1 ? 's' : ''})`;
 
@@ -996,7 +927,7 @@ connection.onDocumentSymbol((params) => {
     const tree = parser.parse(document.getText());
     const matches = symbolQuery.matches(tree.rootNode);
     const symbols = [];
-    const seen = new Set(); // Avoid duplicates
+    const seen = new Set();
 
     for (const match of matches) {
         const nameNode = match.captures.find(c => c.name === 'name')?.node;
@@ -1019,7 +950,6 @@ connection.onDocumentSymbol((params) => {
         }
     }
 
-    // Also include enhanced matches
     const enhancedMatches = enhancedSymbolQuery.matches(tree.rootNode);
     for (const match of enhancedMatches) {
         const nameNode = match.captures.find(c => c.name === 'name')?.node;
@@ -1103,12 +1033,10 @@ connection.onInitialized(() => {
 documents.onDidChangeContent((change) => {
     const oldContent = parseCache.get(change.document.uri)?.content || null;
     indexFile(change.document.uri, change.document.getText());
-    // Update cache with incremental parsing support
     getOrParseFile(change.document.uri, change.document.getText(), oldContent);
     validateTextDocument(change.document);
 });
 
-// Invalidate cache when documents are closed
 documents.onDidClose((event) => {
     parseCache.delete(event.document.uri);
 });
@@ -1143,9 +1071,7 @@ function formatMettaText(text) {
             formattedLines.push('');
             continue;
         }
-        // Use current indent for this line, then update level based on full line content
         formattedLines.push(' '.repeat(indentLevel * indentSize) + trimmed);
-        // Count paren/bracket balance: count each ( [ ) ] in the line
         for (const ch of trimmed) {
             if (ch === '(' || ch === '[') indentLevel++;
             else if (ch === ')' || ch === ']') indentLevel = Math.max(indentLevel - 1, 0);
@@ -1155,13 +1081,12 @@ function formatMettaText(text) {
     return formattedLines.join('\n');
 }
 
-// Full-document formatting
 connection.onDocumentFormatting((params) => {
     const doc = documents.get(params.textDocument.uri);
     if (!doc) return [];
 
     const text = doc.getText();
-    const formatted = formatMettaText(text); // implement this function below
+    const formatted = formatMettaText(text);
 
     return [
         {
@@ -1174,7 +1099,6 @@ connection.onDocumentFormatting((params) => {
     ];
 });
 
-// Range formatting
 connection.onDocumentRangeFormatting((params) => {
     const document = documents.get(params.textDocument.uri);
     if (!document) return [];
@@ -1184,13 +1108,11 @@ connection.onDocumentRangeFormatting((params) => {
     return [{ range: params.range, newText: formatMettaText(selectedText) }];
 });
 
-// On-type formatting
 connection.onDocumentOnTypeFormatting((params) => {
     const document = documents.get(params.textDocument.uri);
     if (!document) return [];
     if (!['\n', ')', ']'].includes(params.ch)) return [];
 
-    // Find the start of the current expression/block
     let startLine = params.position.line;
     while (startLine > 0) {
         const line = document.getText({ start: { line: startLine, character: 0 }, end: { line: startLine, character: Number.MAX_SAFE_INTEGER } });
