@@ -1,0 +1,20 @@
+[
+    "if",
+    "let",
+    "let*",
+    "match",
+    "case",
+    "collapse",
+    "superpose",
+    "Cons",
+    "Nil",
+    "True",
+    "False",
+    "empty",
+    "Error",
+    "eval",
+    "assertEqual",
+    "assertEqualToResult",
+    "bind!",
+    "import!"
+]

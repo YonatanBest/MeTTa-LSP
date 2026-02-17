@@ -2,7 +2,7 @@
     "name": "vscode-metta",
     "displayName": "MeTTa Language Support",
     "description": "Full LSP support for the MeTTa language — syntax highlighting, diagnostics, go-to-definition, hover, completions, references, rename, and more.",
-    "version": "1.0.0",
+    "version": "1.1.1",
     "publisher": "metta-lang",
     "repository": {
         "type": "git",
@@ -36,14 +36,16 @@
     "scripts": {
         "build": "esbuild client/src/extension.js --bundle --platform=node --external:vscode --outfile=dist/extension.js --minify",
         "watch": "esbuild client/src/extension.js --bundle --platform=node --external:vscode --outfile=dist/extension.js --watch",
-        "package": "npm run build && vsce package",
+        "package": "npm run build && copy README.md README_REPO.md && copy /Y EXTENSION.md README.md && vsce package && move /Y README_REPO.md README.md",
         "vscode:prepublish": "npm run build"
     },
     "dependencies": {
+        "node-addon-api": "^8.5.0",
+        "node-gyp-build": "^4.8.4",
+        "tree-sitter": "^0.21.0",
         "vscode-languageclient": "^9.0.1",
         "vscode-languageserver": "^9.0.1",
-        "vscode-languageserver-textdocument": "^1.0.11",
-        "tree-sitter": "^0.21.0"
+        "vscode-languageserver-textdocument": "^1.0.11"
     },
     "devDependencies": {
         "@vscode/vsce": "^3.3.2",
