@@ -40,6 +40,7 @@
   },
   "scripts": {
     "generate": "tree-sitter generate",
+    "generate-highlights": "node scripts/generate-highlights.js",
     "build": "tree-sitter build",
     "test": "tree-sitter test",
     "install": "node-gyp-build",
