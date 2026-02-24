@@ -1,9 +1,16 @@
 const { CompletionItemKind } = require('vscode-languageserver/node');
-const { BUILTIN_SYMBOLS } = require('../utils');
+const { BUILTIN_SYMBOLS, BUILTIN_DOCS } = require('../utils');
 
 function handleCompletion(params, analyzer) {
     const keywords = Array.from(BUILTIN_SYMBOLS)
-        .map(k => ({ label: k, kind: CompletionItemKind.Keyword }));
+        .map(k => ({
+            label: k,
+            kind: CompletionItemKind.Keyword,
+            documentation: BUILTIN_DOCS.has(k) ? {
+                kind: 'markdown',
+                value: BUILTIN_DOCS.get(k)
+            } : undefined
+        }));
 
     const projectSymbols = Array.from(analyzer.globalIndex.keys()).map(s => ({ label: s, kind: CompletionItemKind.Function }));
     const all = [...keywords, ...projectSymbols];

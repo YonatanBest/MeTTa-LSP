@@ -224,11 +224,19 @@ class Analyzer {
             }
         }
 
+        const validOps = new Set(['=', ':', '->', 'macro', 'defmacro']);
+
         for (const match of matches) {
             const nameNode = match.captures.find(c => c.name === 'name')?.node;
             const opNode = match.captures.find(c => c.name === 'op')?.node;
 
             if (nameNode) {
+                const opText = opNode ? opNode.text : '=';
+                if (opNode && !validOps.has(opText)) {
+                    // Workaround for tree-sitter node bindings ignoring #any-of? predicates
+                    continue;
+                }
+
                 const name = nameNode.text;
                 const existing = this.globalIndex.get(name);
                 if (existing && existing.some(e => e.uri === uri &&
@@ -237,17 +245,66 @@ class Analyzer {
                     continue;
                 }
 
-                let parent = nameNode.parent;
-                while (parent && parent.type !== 'list') parent = parent.parent;
-                const context = parent ? parent.text : name;
+                let innerList = nameNode.parent;
+                while (innerList && innerList.type !== 'list') innerList = innerList.parent;
 
+                let definitionNode = innerList;
+                if (opText === '=' || opText === ':' || opText === 'macro' || opText === 'defmacro') {
+                    let outer = innerList.parent;
+                    while (outer && outer.type !== 'list') outer = outer.parent;
+                    if (outer) {
+                        definitionNode = outer;
+                        const namedArgs = definitionNode.children.filter(c => c.type === 'atom' || c.type === 'list');
+                        if (namedArgs.indexOf(innerList) !== 1) {
+                            continue;
+                        }
+
+                        const isTopLevel = definitionNode.parent && definitionNode.parent.type === 'source_file';
+                        if (!isTopLevel) {
+                            continue;
+                        }
+                    }
+                }
+
+                const context = definitionNode ? definitionNode.text : name;
                 const kind = this.detectSymbolKind(nameNode, opNode, context);
+
+                let description = [];
+                let prev = definitionNode ? definitionNode.previousSibling : null;
+                while (prev) {
+                    if (prev.type === 'comment') {
+                        description.unshift(prev.text.replace(/^;+\s*/, '').trim());
+                    } else if (prev.type === '\n' || !prev.type || prev.text.trim() === '') {
+                        // skip whitespace
+                    } else {
+                        break;
+                    }
+                    prev = prev.previousSibling;
+                }
+
+                let parameters = [];
+                let typeSignature = null;
+
+                if (opText === '=') {
+                    if (innerList) {
+                        const listArgs = innerList.children.filter(c => c.type === 'atom' || c.type === 'list');
+                        parameters = listArgs.slice(1).map(c => c.text.trim());
+                    }
+                } else if (opText === ':') {
+                    const args = definitionNode ? definitionNode.children.filter(c => c.type === 'list' || c.type === 'atom') : [];
+                    if (args.length > 2) {
+                        typeSignature = args[2].text;
+                    }
+                }
 
                 const entry = {
                     uri,
                     kind,
                     context,
-                    op: opNode ? opNode.text : '=',
+                    op: opText,
+                    description: description.length > 0 ? description.join('\n') : null,
+                    parameters: parameters.length > 0 ? parameters : null,
+                    typeSignature,
                     range: {
                         start: { line: nameNode.startPosition.row, character: nameNode.startPosition.column },
                         end: { line: nameNode.endPosition.row, character: nameNode.endPosition.column },

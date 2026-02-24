@@ -1,20 +1,29 @@
-[
-    "if",
-    "let",
-    "let*",
-    "match",
-    "case",
-    "collapse",
-    "superpose",
-    "Cons",
-    "Nil",
-    "True",
-    "False",
-    "empty",
-    "Error",
-    "eval",
-    "assertEqual",
-    "assertEqualToResult",
-    "bind!",
-    "import!"
-]
+{
+    "keywords": {
+        "if": "Evaluates a condition and returns the first expression if true, and the second if false.\n\n**Example:**\n```metta\n(if (== 1 1) \"Yes\" \"No\")\n```",
+        "let": "Binds a variable to an evaluated expression within a local scope.\n\n**Example:**\n```metta\n(let $x (+ 1 2) (* $x 2))\n```",
+        "let*": "Sequentially binds variables to expressions, allowing later bindings to use earlier ones.\n\n**Example:**\n```metta\n(let* (($x 2) ($y (+ $x 1))) (* $x $y))\n```",
+        "match": "Matches a pattern against a space and evaluates an expression for each match.\n\n**Example:**\n```metta\n(match &space (likes $x pizza) (return $x))\n```",
+        "case": "Pattern matches an expression against a list of cases and evaluates the matching branch.\n\n**Example:**\n```metta\n(case (calc) (\n  (Error $e) (log $e)\n  ($res $res)\n))\n```",
+        "collapse": "Evaluates an expression that has multiple non-deterministic results and returns them as a single Tuple/List.\n\n**Example:**\n```metta\n(collapse (superpose (1 2 3)))\n```",
+        "superpose": "Takes a Tuple/List and non-deterministically evaluates to each element individually.\n\n**Example:**\n```metta\n(+ 10 (superpose (1 2 3)))\n```"
+    },
+    "builtins": {
+        "eval": "Reduces an expression to its normal form by applying all possible evaluations.\n\n**Example:**\n```metta\n(eval (+ 1 2))\n```",
+        "assertEqual": "Asserts that two expressions evaluate to the same result. Used in testing.\n\n**Example:**\n```metta\n(assertEqual (+ 1 2) 3)\n```",
+        "assertEqualToResult": "Asserts that an expression evaluates exactly to a specific set of results (handling non-determinism).\n\n**Example:**\n```metta\n(assertEqualToResult (superpose (1 2)) (1 2))\n```",
+        "bind!": "Binds a symbol to a grounded atom or space in the current runner's context.\n\n**Example:**\n```metta\n!(bind! &my-space (new-space))\n```",
+        "import!": "Imports another MeTTa module into the current space.\n\n**Example:**\n```metta\n!(import! &self module_name)\n```",
+        "println!": "Prints an expression to the standard output.\n\n**Example:**\n```metta\n(println! \"Hello World\")\n```",
+        "get-type": "Returns the type of an expression.\n\n**Example:**\n```metta\n(get-type 42)\n```",
+        "new-space": "Creates a new empty space.\n\n**Example:**\n```metta\n(bind! &myspace (new-space))\n```"
+    },
+    "constants": {
+        "True": "The boolean literal for true.",
+        "False": "The boolean literal for false.",
+        "Nil": "Represents the empty atom or null.",
+        "empty": "A special token indicating an empty result sequence (causes the evaluation branch to fail).",
+        "Cons": "The constructor for lists, used to append an element to the head of a list.",
+        "Error": "An atom used to wrap error messages or failure states."
+    }
+}

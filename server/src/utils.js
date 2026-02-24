@@ -1,7 +1,13 @@
 const { URL } = require('url');
-const keywords = require('./keywords.json');
+const keywordData = require('./keywords.json');
 
-const BUILTIN_SYMBOLS = new Set(keywords);
+const BUILTIN_DOCS = new Map([
+    ...Object.entries(keywordData.keywords),
+    ...Object.entries(keywordData.builtins),
+    ...Object.entries(keywordData.constants),
+]);
+
+const BUILTIN_SYMBOLS = new Set(BUILTIN_DOCS.keys());
 
 function normalizeUri(uri) {
     try {
@@ -38,6 +44,7 @@ function isRangeEqual(range1, range2) {
 
 module.exports = {
     BUILTIN_SYMBOLS,
+    BUILTIN_DOCS,
     normalizeUri,
     uriToPath,
     isRangeEqual

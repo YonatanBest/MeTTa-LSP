@@ -5,9 +5,9 @@ Full-featured Language Server Protocol (LSP) support for the [MeTTa](https://wik
 ## Features
 
 - **Syntax Highlighting** — Tree-sitter powered semantic coloring for keywords, functions, variables, strings, numbers, and operators
-- **Diagnostics** — Real-time syntax error reporting and duplicate definition warnings as you type
+- **Diagnostics** — Real-time syntax error reporting, duplicate top-level definition warnings, and undefined function detection
 - **Go to Definition** — Jump to any function or type definition across the workspace
-- **Hover Info** — View type signatures and definitions by hovering over symbols
+- **Rich Hover Documentation** — Highly detailed hover info including type signatures, descriptions, parameters, and return types
 - **Auto-Completion** — Context-aware suggestions for keywords and project symbols
 - **Find All References** — Locate every usage of a symbol across the project with scope awareness
 - **Rename Symbol** — Safe workspace-wide renaming with conflict detection
@@ -64,6 +64,8 @@ The `.vsix` file will appear in the project root (e.g., `vscode-metta-1.1.0.vsix
 │           └── symbols.js        # Document Symbols
 ├── grammar/                   # Tree-sitter MeTTa grammar
 │   ├── grammar.js             # Grammar definition
+│   ├── scripts/               # Codegen scripts
+│   │   └── generate-highlights.js # Maps keywords.json to highlights.scm
 │   ├── src/                   # Generated parser (parser.c, grammar.json)
 │   ├── queries/metta/         # Tree-sitter query files
 │   │   ├── definitions.scm        # Symbol definition patterns
@@ -97,6 +99,22 @@ Each LSP capability is isolated in its own module under `server/src/features/`. 
 ### Client (`client/`)
 
 Thin LSP client that bootstraps the language server and forwards capabilities to VS Code.
+
+## Maintenance
+
+### Keyword Management
+
+Keywords, constants, and built-ins are managed in a single source of truth: `server/src/keywords.json`.
+
+To add a new keyword:
+1. Add the string to the appropriate category in `server/src/keywords.json`.
+2. Sync the Tree-sitter highlighter by running:
+   ```powershell
+   cd grammar
+   npm run generate-highlights
+   ```
+
+This ensures that the Language Server (for completions) and Tree-sitter (for syntax highlighting) stay perfectly in sync.
 
 ## License
 

@@ -31,15 +31,22 @@
   head: (atom (symbol) @function.call))
 
 ; --- Special Symbols / Keywords ---
-(list
-  head: (atom (symbol) @keyword)
-  (#any-of? @keyword "if" "match" "case" "let" "let*" "collapse" "superpose"))
+; <<GENERATED:keywords>>
+((symbol) @keyword
+  (#any-of? @keyword "if" "let" "let*" "match" "case" "collapse" "superpose"))
+; <</GENERATED:keywords>>
 
-((symbol) @boolean
-  (#any-of? @boolean "True" "False"))
+; --- Builtins ---
+; <<GENERATED:builtins>>
+((symbol) @function.builtin
+  (#any-of? @function.builtin "eval" "assertEqual" "assertEqualToResult" "bind!" "import!"))
+; <</GENERATED:builtins>>
 
+; --- Constants ---
+; <<GENERATED:constants>>
 ((symbol) @constant
-  (#any-of? @constant "Nil" "empty"))
+  (#any-of? @constant "True" "False" "Nil" "empty" "Cons" "Error"))
+; <</GENERATED:constants>>
 
 ; Operators
 ((symbol) @operator
