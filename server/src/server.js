@@ -122,9 +122,9 @@ connection.onSignatureHelp((params) => handleSignatureHelp(params, documents, an
 connection.onRenameRequest((params) => handleRenameRequest(params, documents, analyzer, workspaceFolders));
 connection.onPrepareRename((params) => handlePrepareRename(params, documents, analyzer, workspaceFolders));
 
-connection.onDocumentFormatting((params) => handleDocumentFormatting(params, documents));
-connection.onDocumentRangeFormatting((params) => handleDocumentRangeFormatting(params, documents));
-connection.onDocumentOnTypeFormatting((params) => handleDocumentOnTypeFormatting(params, documents));
+connection.onDocumentFormatting((params) => handleDocumentFormatting(params, documents, analyzer));
+connection.onDocumentRangeFormatting((params) => handleDocumentRangeFormatting(params, documents, analyzer));
+connection.onDocumentOnTypeFormatting((params) => handleDocumentOnTypeFormatting(params, documents, analyzer));
 
 // Listening
 documents.listen(connection);
